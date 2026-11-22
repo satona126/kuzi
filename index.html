@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>クジ金魚</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Zen Maru Gothic & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Zen+Maru+Gothic:wght@500;700;900&display=swap" rel="stylesheet">
+    <!-- Three.js & OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        body {
+            font-family: 'Zen Maru Gothic', 'Inter', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            background: radial-gradient(circle at center, #0a192f 0%, #020617 100%);
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* ガラスモーフィズムUI */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        /* 虹色グラデーションアニメーション */
+        @keyframes rainbow-bg {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        .rainbow-text {
+            background: linear-gradient(270deg, #ff2400, #e81d1d, #e8b71d, #e3e81d, #1de840, #1ddde8, #2b1de8, #dd00f3, #ff2400);
+            background-size: 400% 400%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: rainbow-bg 3s ease infinite;
+        }
+        .rainbow-border {
+            border: 2px solid transparent;
+            background-image: linear-gradient(rgba(15, 23, 42, 0.85), rgba(15, 23, 42, 0.85)), 
+                              linear-gradient(120deg, #ff2400, #e8b71d, #1de840, #1ddde8, #dd00f3);
+            background-origin: border-box;
+            background-clip: padding-box, border-box;
+        }
+
+        /* ポップアップアニメーション */
+        @keyframes popIn {
+            0% { transform: scale(0.8) translateY(20px); opacity: 0; }
+            70% { transform: scale(1.03) translateY(-2px); opacity: 1; }
+            100% { transform: scale(1) translateY(0); opacity: 1; }
+        }
+        .animate-pop-in {
+            animation: popIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        /* カスタムスクロールバー */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
+    </style>
+</head>
+<body class="text-white antialiased">
+
+    <!-- 3Dキャンバスコンテナ -->
+    <div id="canvas-container" class="fixed inset-0 w-full h-full z-0 cursor-grab active:cursor-grabbing"></div>
+
+    <!-- ヘッダーUI（左上：タイトル＆金魚数、右上：日替わりタイマー＆操作ボタン） -->
+    <header class="fixed top-0 left-0 right-0 z-10 p-3 sm:p-4 flex justify-between items-start pointer-events-none">
+        <!-- 左上：タイトル＆ステータス -->
+        <div class="glass-panel rounded-2xl px-3.5 py-2.5 pointer-events-auto flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center shadow-lg shadow-orange-500/30 text-lg">
+                🐠
+            </div>
+            <div>
+                <h1 class="text-sm sm:text-base font-bold tracking-wider text-white leading-tight">言霊金魚アクアリウム</h1>
+                <div class="flex items-center gap-2 text-xs text-sky-200/80 mt-0.5">
+                    <span>水槽の金魚: <strong id="fish-count" class="text-white font-bold">0</strong> 匹</span>
+                    <span class="text-white/30">|</span>
+                    <button id="sound-toggle" class="hover:text-white transition flex items-center gap-1" title="効果音切替">
+                        <span id="sound-icon">🔊</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右上：次の日までのカウントダウンタイマー＆リセット -->
+        <div class="flex flex-col items-end gap-2 pointer-events-auto">
+            <div class="glass-panel rounded-xl px-3 py-1.5 text-right border border-sky-400/20">
+                <div class="text-[10px] text-sky-300/80 tracking-wider font-medium" id="current-date-label">----/--/-- の運勢</div>
+                <div class="text-xs sm:text-sm font-mono font-bold text-amber-300 tracking-tight flex items-center justify-end gap-1.5">
+                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                    <span id="countdown-timer">次の日まで --:--:--</span>
+                </div>
+            </div>
+
+            <div class="flex gap-1.5">
+                <button id="toggle-prob-btn" class="glass-panel hover:bg-white/10 active:scale-95 transition rounded-xl px-2.5 py-1.5 text-xs text-slate-200 flex items-center gap-1" title="確率表を見る">
+                    <span>📊</span><span class="hidden sm:inline">確率表</span>
+                </button>
+                <button id="reset-tank-btn" class="glass-panel hover:bg-rose-500/20 hover:border-rose-400/40 active:scale-95 transition rounded-xl px-2.5 py-1.5 text-xs text-rose-200 flex items-center gap-1" title="水槽を空にする">
+                    <span>🗑️</span><span class="hidden sm:inline">水槽リセット</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 確率表モーダル（折りたたみパネル） -->
+    <div id="prob-modal" class="fixed top-20 right-3 sm:right-4 z-20 w-72 glass-panel rounded-2xl p-4 hidden animate-pop-in text-xs">
+        <div class="flex justify-between items-center border-b border-white/10 pb-2 mb-2.5">
+            <h3 class="font-bold text-sky-200 flex items-center gap-1.5">📊 排出確率とルール</h3>
+            <button id="close-prob-btn" class="text-slate-400 hover:text-white p-1">✕</button>
+        </div>
+        <p class="text-[11px] text-slate-300 mb-3 leading-relaxed">
+            入力した文字と今日の日付から金魚が決まります。<strong class="text-amber-300">同じ日は同じ文字なら同じ金魚</strong>が出現し、0時になると確率がリセットされます。
+        </p>
+        <div class="space-y-2.5">
+            <div>
+                <div class="text-[11px] font-bold text-slate-400 mb-1">【色の確率】</div>
+                <div class="grid grid-cols-2 gap-1 text-[11px]">
+                    <div class="flex justify-between bg-white/5 px-2 py-1 rounded"><span>⚪ 白</span><span class="font-mono">40.0%</span></div>
+                    <div class="flex justify-between bg-white/5 px-2 py-1 rounded"><span class="text-orange-300">🟠 オレンジ</span><span class="font-mono">30.0%</span></div>
+                    <div class="flex justify-between bg-white/5 px-2 py-1 rounded"><span class="text-slate-300">⚫ 黒</span><span class="font-mono">20.0%</span></div>
+                    <div class="flex justify-between bg-white/5 px-2 py-1 rounded"><span class="text-sky-300">🔵 青</span><span class="font-mono">5.0%</span></div>
+                    <div class="flex justify-between bg-white/5 px-2 py-1 rounded"><span class="text-slate-200 font-bold">🥈 銀</span><span class="font-mono">2.5%</span></div>
+                    <div class="flex justify-between bg-white/5 px-2 py-1 rounded"><span class="text-amber-300 font-bold">👑 金</span><span class="font-mono">1.5%</span></div>
+                    <div class="col-span-2 flex justify-between bg-gradient-to-r from-pink-500/20 via-amber-500/20 to-cyan-500/20 border border-white/15 px-2 py-1 rounded">
+                        <span class="rainbow-text font-bold">🌈 虹（超激レア）</span><span class="font-mono font-bold text-white">1.0%</span>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <div class="text-[11px] font-bold text-slate-400 mb-1">【サイズの確率】</div>
+                <div class="grid grid-cols-2 gap-1 text-[11px]">
+                    <div class="flex justify-between bg-white/5 px-2 py-1 rounded"><span>小さい</span><span class="font-mono">40%</span></div>
+                    <div class="flex justify-between bg-white/5 px-2 py-1 rounded"><span>中くらい</span><span class="font-mono">30%</span></div>
+                    <div class="flex justify-between bg-white/5 px-2 py-1 rounded"><span>大きい</span><span class="font-mono">20%</span></div>
+                    <div class="flex justify-between bg-amber-500/15 border border-amber-400/30 px-2 py-1 rounded"><span class="text-amber-200 font-bold">めっちゃ大きい</span><span class="font-mono text-amber-200">10%</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 抽選結果通知カード（画面中央上部にふわっと表示） -->
+    <div id="result-banner" class="fixed top-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none hidden w-[90%] max-w-sm">
+        <div id="result-card" class="glass-panel rounded-2xl p-4 text-center shadow-2xl transition-all duration-300">
+            <div id="result-rarity-badge" class="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wider mb-1 bg-white/10 text-sky-200">
+                本日の言霊結果
+            </div>
+            <div class="text-xs text-slate-300 truncate max-w-[260px] mx-auto mb-1">
+                「<span id="result-word" class="font-bold text-white"></span>」
+            </div>
+            <div id="result-title" class="text-xl sm:text-2xl font-black tracking-wide my-1">
+                白の小さい金魚
+            </div>
+            <div id="result-sub" class="text-xs text-sky-200/90 font-mono">
+                出現率: 16.0% (色 40% × サイズ 40%)
+            </div>
+        </div>
+    </div>
+
+    <!-- トースト通知（日付変更やリセット確認用） -->
+    <div id="toast-message" class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none hidden">
+        <div class="glass-panel rounded-2xl px-6 py-4 text-center border border-amber-400/40 shadow-2xl animate-pop-in">
+            <div id="toast-icon" class="text-3xl mb-1">🌅</div>
+            <div id="toast-text" class="text-sm sm:text-base font-bold text-white">日付が変わりました！</div>
+            <div id="toast-subtext" class="text-xs text-amber-200 mt-1">すべての文字の運勢が新しくなりました</div>
+        </div>
+    </div>
+
+    <!-- 下部：文字入力＆操作パネル（折りたたみ可能） -->
+    <div class="fixed bottom-0 left-0 right-0 z-10 p-3 sm:p-5 flex flex-col items-center pointer-events-none">
+        <!-- カメラ操作ヒント（水槽が空の時や初期表示に控えめに表示） -->
+        <div id="camera-hint" class="text-[11px] text-sky-200/60 mb-2 bg-slate-950/40 px-3 py-1 rounded-full backdrop-blur-sm pointer-events-none transition-opacity duration-500">
+            🖱️ ドラッグ / スワイプで360度回転・ピンチ/ホイールでズーム
+        </div>
+
+        <!-- 折りたたみトグルボタン（パネル収納時用） -->
+        <button id="expand-ui-btn" class="hidden pointer-events-auto glass-panel hover:bg-white/15 active:scale-95 transition rounded-full px-5 py-2.5 text-sm font-bold text-white shadow-lg flex items-center gap-2 mb-1">
+            <span>✍️</span><span>文字を入れて金魚を呼ぶ</span>
+        </button>
+
+        <!-- メイン入力パネル -->
+        <div id="input-panel" class="w-full max-w-md glass-panel rounded-3xl p-3.5 sm:p-4 pointer-events-auto transition-all duration-300">
+            <div class="flex justify-between items-center mb-2 px-1">
+                <label for="word-input" class="text-xs font-bold text-sky-200 flex items-center gap-1.5">
+                    <span>✨ 好きな言葉・名前・呪文を入力</span>
+                </label>
+                <button id="collapse-ui-btn" class="text-xs text-slate-400 hover:text-white px-2 py-0.5 rounded-lg hover:bg-white/10 transition" title="水槽を広く見る">
+                    ▼ 隠す
+                </button>
+            </div>
+
+            <form id="fortune-form" class="flex gap-2">
+                <input
+                    type="text"
+                    id="word-input"
+                    placeholder="例：こんにちは、大吉、今日のラッキー..."
+                    autocomplete="off"
+                    class="flex-1 min-w-0 bg-slate-950/60 border border-white/20 focus:border-sky-400 focus:ring-2 focus:ring-sky-400/30 rounded-2xl px-4 py-3 text-sm sm:text-base text-white placeholder-slate-400 outline-none transition"
+                />
+                <button
+                    type="submit"
+                    id="summon-btn"
+                    class="bg-gradient-to-r from-orange-500 via-amber-500 to-rose-500 hover:from-orange-400 hover:to-rose-400 active:scale-95 text-white font-bold px-5 py-3 rounded-2xl shadow-lg shadow-orange-500/30 transition flex items-center gap-1.5 shrink-0 text-sm sm:text-base"
+                >
+                    <span>金魚を呼ぶ</span>
+                </button>
+            </form>
+            <div id="input-error" class="text-rose-400 text-xs mt-1.5 px-1 hidden">
+                ※ 1文字以上入力してください
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * ============================================================================
+         * 1. サウンドエフェクトエンジン (Web Audio API - 外部ファイル不要)
+         * ============================================================================
+         */
+        class SoundManager {
+            constructor() {
+                this.ctx = null;
+                this.enabled = true;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    this.ctx = new AudioCtx();
+                }
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            }
+
+            toggle() {
+                this.enabled = !this.enabled;
+                return this.enabled;
+            }
+
+            // 水にぽちゃん！と入る音
+            playWaterDrop(sizeScale = 1.0) {
+                if (!this.enabled) return;
+                this.init();
+                const now = this.ctx.currentTime;
+
+                // 泡のピッチ上昇音（サイズが大きいほど低い音）
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+
+                const baseFreq = Math.max(180, 420 / Math.sqrt(sizeScale));
+                osc.frequency.setValueAtTime(baseFreq * 0.6, now);
+                osc.frequency.exponentialRampToValueAtTime(baseFreq * 2.1, now + 0.16);
+
+                gain.gain.setValueAtTime(0.01, now);
+                gain.gain.linearRampToValueAtTime(0.28, now + 0.03);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.23);
+
+                // 二次的な小さな水滴音
+                setTimeout(() => {
+                    if (!this.enabled || !this.ctx) return;
+                    const t2 = this.ctx.currentTime;
+                    const osc2 = this.ctx.createOscillator();
+                    const gain2 = this.ctx.createGain();
+                    osc2.type = 'sine';
+                    osc2.frequency.setValueAtTime(baseFreq * 1.1, t2);
+                    osc2.frequency.exponentialRampToValueAtTime(baseFreq * 2.6, t2 + 0.11);
+                    gain2.gain.setValueAtTime(0.12, t2);
+                    gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.12);
+                    osc2.connect(gain2);
+                    gain2.connect(this.ctx.destination);
+                    osc2.start(t2);
+                    osc2.stop(t2 + 0.13);
+                }, 95);
+            }
+
+            // レア排出時のキラキラファンファーレ音 (銀・金・虹・超特大)
+            playRareSparkle(tier = 'rare') {
+                if (!this.enabled) return;
+                this.init();
+                const now = this.ctx.currentTime;
+
+                // ランクに応じた和音アルペジオ
+                const notes = tier === 'rainbow'
+                    ? [523.25, 659.25, 783.99, 1046.50, 1318.51, 1567.98, 2093.00] // Cメジャー豪華上昇
+                    : tier === 'gold'
+                    ? [587.33, 739.99, 880.00, 1174.66, 1479.98] // Dメジャー
+                    : [523.25, 659.25, 783.99, 1046.50]; // Cメジャー
+
+                notes.forEach((freq, idx) => {
+                    const start = now + idx * 0.065;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+
+                    osc.type = tier === 'rainbow' ? 'triangle' : 'sine';
+                    osc.frequency.setValueAtTime(freq, start);
+
+                    gain.gain.setValueAtTime(0.001, start);
+                    gain.gain.linearRampToValueAtTime(0.16, start + 0.02);
+                    gain.gain.exponentialRampToValueAtTime(0.0008, start + 0.55);
+
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(start);
+                    osc.stop(start + 0.58);
+                });
+            }
+        }
+
+        const soundManager = new SoundManager();
+
+        /**
+         * ============================================================================
+         * 2. 日替わり決定論的確率エンジン (シード付きPRNG)
+         * ============================================================================
+         */
+        // ローカルタイムで YYYY-MM-DD を取得
+        function getLocalDateString(dateObj = new Date()) {
+            const y = dateObj.getFullYear();
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        // cyrb128 ハッシュ関数（文字列から128ビットのシードを生成）
+        function cyrb128(str) {
+            let h1 = 1779033703, h2 = 3144134277,
+                h3 = 1013904242, h4 = 2773480762;
+            for (let i = 0, k; i < str.length; i++) {
+                k = str.charCodeAt(i);
+                h1 = h2 ^ Math.imul(h1 ^ k, 597399067);
+                h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+                h3 = h4 ^ Math.imul(h3 ^ k, 951274213);
+                h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+            }
+            h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+            h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+            h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+            h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+            return [(h1 ^ h2 ^ h3 ^ h4) >>> 0, (h2 ^ h1) >>> 0, (h3 ^ h1) >>> 0, (h4 ^ h1) >>> 0];
+        }
+
+        // Mulberry32 擬似乱数生成器（0以上1未満の決定論的乱数を返す）
+        function mulberry32(a) {
+            return function() {
+                let t = a += 0x6D2B79F5;
+                t = Math.imul(t ^ (t >>> 15), t | 1);
+                t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            };
+        }
+
+        // 色の定義と厳密な確率テーブル
+        const COLOR_TABLE = [
+            { id: 'white',   name: '白',       prob: 40.0, hex: 0xf8fafc, finHex: 0xffedd5, metalness: 0.05, roughness: 0.35, rarity: 'normal' },
+            { id: 'orange',  name: 'オレンジ', prob: 30.0, hex: 0xf97316, finHex: 0xfdba74, metalness: 0.05, roughness: 0.35, rarity: 'normal' },
+            { id: 'black',   name: '黒',       prob: 20.0, hex: 0x1e293b, finHex: 0x475569, metalness: 0.15, roughness: 0.30, rarity: 'normal' },
+            { id: 'blue',    name: '青',       prob: 5.0,  hex: 0x0ea5e9, finHex: 0x7dd3fc, metalness: 0.20, roughness: 0.25, rarity: 'uncommon' },
+            { id: 'silver',  name: '銀',       prob: 2.5,  hex: 0xe2e8f0, finHex: 0xffffff, metalness: 0.92, roughness: 0.15, rarity: 'silver' },
+            { id: 'gold',    name: '金',       prob: 1.5,  hex: 0xfbbf24, finHex: 0xfef08a, metalness: 0.95, roughness: 0.12, rarity: 'gold' },
+            { id: 'rainbow', name: '虹',       prob: 1.0,  hex: 0xff0080, finHex: 0x00ffff, metalness: 0.65, roughness: 0.18, rarity: 'rainbow' }
+        ];
+
+        // サイズの定義と厳密な確率テーブル
+        const SIZE_TABLE = [
+            { id: 'small',  name: '小さい',         prob: 40.0, scale: 0.52 },
+            { id: 'medium', name: '中くらいの',     prob: 30.0, scale: 0.88 },
+            { id: 'large',  name: '大きい',         prob: 20.0, scale: 1.38 },
+            { id: 'xl',     name: 'めっちゃ大きい', prob: 10.0, scale: 2.35 }
+        ];
+
+        /**
+         * 入力文字列と今日の日付から金魚を抽選する（完全決定論的）
+         */
+        function drawGoldfishFortune(inputText, dateStr) {
+            // 隠しコマンド判定（大文字・小文字を問わず "admin" なら確定で「虹 × めっちゃ大きい」）
+            if (inputText.trim().toLowerCase() === 'admin') {
+                const rainbowColor = COLOR_TABLE.find(c => c.id === 'rainbow');
+                const xlSize = SIZE_TABLE.find(s => s.id === 'xl');
+                return {
+                    word: inputText,
+                    date: dateStr,
+                    color: rainbowColor,
+                    size: xlSize,
+                    combinedProb: '0.1',
+                    isAdmin: true
+                };
+            }
+
+            // 日付と入力文字列を結合してシード生成（ソルト付き）
+            const combinedKey = `KOTODAMA_GOLDFISH_V1::${dateStr}::${inputText}`;
+            const seed = cyrb128(combinedKey);
+            const rand = mulberry32(seed[0]);
+
+            // 1. 色の抽選 (0 <= rColor < 100)
+            const rColor = rand() * 100;
+            let accColor = 0;
+            let selectedColor = COLOR_TABLE[0];
+            for (const c of COLOR_TABLE) {
+                accColor += c.prob;
+                if (rColor < accColor) {
+                    selectedColor = c;
+                    break;
+                }
+            }
+
+            // 2. サイズの抽選（色とは独立した乱数で 0 <= rSize < 100）
+            const rSize = rand() * 100;
+            let accSize = 0;
+            let selectedSize = SIZE_TABLE[0];
+            for (const s of SIZE_TABLE) {
+                accSize += s.prob;
+                if (rSize < accSize) {
+                    selectedSize = s;
+                    break;
+                }
+            }
+
+            // 複合確率の計算（小数点第3位まで綺麗に整形）
+            const combinedProb = (selectedColor.prob * selectedSize.prob) / 100;
+            const formattedProb = combinedProb < 0.1
+                ? combinedProb.toFixed(3).replace(/\.?0+$/, '')
+                : combinedProb.toFixed(2).replace(/\.?0+$/, '');
+
+            return {
+                word: inputText,
+                date: dateStr,
+                color: selectedColor,
+                size: selectedSize,
+                combinedProb: formattedProb,
+                isAdmin: false
+            };
+        }
+
+        /**
+         * ============================================================================
+         * 3. 3Dアクアリウム＆金魚シミュレーション (Three.js)
+         * ============================================================================
+         */
+        const TANK_BOUNDS = {
+            width: 14,
+            height: 8.5,
+            depth: 9.5
+        };
+
+        let scene, camera, renderer, controls;
+        let tankGroup, bubblesMesh, sparklesGroup;
+        const activeGoldfishes = [];
+        const activeParticles = [];
+        const clock = new THREE.Clock();
+
+        function initThreeJS() {
+            const container = document.getElementById('canvas-container');
+
+            // シーン作成
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x041226, 0.022);
+
+            // カメラ設定
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 3.2, 18.5);
+
+            // レンダラー設定
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.15;
+            container.appendChild(renderer.domElement);
+
+            // 360度カメラコントロール (OrbitControls)
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.06;
+            controls.minDistance = 6;
+            controls.maxDistance = 32;
+            controls.maxPolarAngle = Math.PI * 0.88;
+            controls.target.set(0, 0, 0);
+
+            // ライティング設定（水中の光の差し込みを表現）
+            const ambientLight = new THREE.AmbientLight(0x7dd3fc, 0.75);
+            scene.add(ambientLight);
+
+            const topSpotLight = new THREE.SpotLight(0xffffff, 1.8);
+            topSpotLight.position.set(2, 16, 4);
+            topSpotLight.angle = Math.PI / 3;
+            topSpotLight.penumbra = 0.6;
+            scene.add(topSpotLight);
+
+            const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.8);
+            rimLight.position.set(-10, -5, -10);
+            scene.add(rimLight);
+
+            // 銀・金・虹のメタリック反射用の簡易環境マップ生成
+            createProceduralEnvMap();
+
+            // 水槽・砂利・水草・気泡の構築
+            buildAquariumEnvironment();
+
+            // ウィンドウリサイズ対応
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // 外部画像なしで金属光沢を出すためのプロシージャル環境マップ
+        function createProceduralEnvMap() {
+            const pmremGenerator = new THREE.PMREMGenerator(renderer);
+            const envScene = new THREE.Scene();
+            envScene.background = new THREE.Color(0x0c4a6e);
+
+            const lightMesh1 = new THREE.Mesh(
+                new THREE.SphereGeometry(4, 16, 16),
+                new THREE.MeshBasicMaterial({ color: 0xffffff })
+            );
+            lightMesh1.position.set(10, 15, 10);
+            envScene.add(lightMesh1);
+
+            const lightMesh2 = new THREE.Mesh(
+                new THREE.SphereGeometry(5, 16, 16),
+                new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+            );
+            lightMesh2.position.set(-12, 8, -8);
+            envScene.add(lightMesh2);
+
+            const renderTarget = pmremGenerator.fromScene(envScene);
+            scene.environment = renderTarget.texture;
+            pmremGenerator.dispose();
+        }
+
+        // 水槽のガラス・フレーム・底砂・水草・気泡を構築
+        function buildAquariumEnvironment() {
+            tankGroup = new THREE.Group();
+            scene.add(tankGroup);
+
+            const { width: W, height: H, depth: D } = TANK_BOUNDS;
+
+            // 1. 水のボリューム（半透明の淡いアクアブルー）
+            const waterGeo = new THREE.BoxGeometry(W, H, D);
+            const waterMat = new THREE.MeshPhysicalMaterial({
+                color: 0x0284c7,
+                transparent: true,
+                opacity: 0.11,
+                roughness: 0.1,
+                metalness: 0.0,
+                side: THREE.BackSide,
+                depthWrite: false
+            });
+            const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+            tankGroup.add(waterMesh);
+
+            // 2. 水面（ゆらめくトップ面）
+            const surfaceGeo = new THREE.PlaneGeometry(W - 0.05, D - 0.05, 24, 24);
+            surfaceGeo.rotateX(-Math.PI / 2);
+            const surfaceMat = new THREE.MeshPhysicalMaterial({
+                color: 0x7dd3fc,
+                transparent: true,
+                opacity: 0.28,
+                roughness: 0.15,
+                metalness: 0.3,
+                side: THREE.DoubleSide
+            });
+            const surfaceMesh = new THREE.Mesh(surfaceGeo, surfaceMat);
+            surfaceMesh.position.y = H / 2 - 0.15;
+            surfaceMesh.userData.isWaterSurface = true;
+            tankGroup.add(surfaceMesh);
+
+            // 3. 水槽のガラスエッジフレーム（洗練された細身フレーム）
+            const edgesGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(W, H, D));
+            const edgesMat = new THREE.LineBasicMaterial({
+                color: 0xbae6fd,
+                transparent: true,
+                opacity: 0.45
+            });
+            const glassFrame = new THREE.LineSegments(edgesGeo, edgesMat);
+            tankGroup.add(glassFrame);
+
+            // 4. 底砂（グラデーション感のある美しい川砂・白砂ベッド）
+            const sandHeight = 0.65;
+            const sandGeo = new THREE.BoxGeometry(W - 0.08, sandHeight, D - 0.08, 16, 1, 16);
+            // 砂の表面にわずかな起伏をつける
+            const posAttr = sandGeo.attributes.position;
+            for (let i = 0; i < posAttr.count; i++) {
+                const y = posAttr.getY(i);
+                if (y > 0) {
+                    const x = posAttr.getX(i);
+                    const z = posAttr.getZ(i);
+                    const wave = Math.sin(x * 0.7) * 0.08 + Math.cos(z * 0.8) * 0.08;
+                    posAttr.setY(i, y + wave);
+                }
+            }
+            sandGeo.computeVertexNormals();
+
+            const sandMat = new THREE.MeshStandardMaterial({
+                color: 0xd6cfc2,
+                roughness: 0.9,
+                metalness: 0.05
+            });
+            const sandMesh = new THREE.Mesh(sandGeo, sandMat);
+            sandMesh.position.y = -H / 2 + sandHeight / 2;
+            tankGroup.add(sandMesh);
+
+            // 5. 小石（アクセントストーン）
+            const stoneColors = [0x64748b, 0x475569, 0x94a3b8, 0x334155];
+            for (let i = 0; i < 18; i++) {
+                const radius = 0.22 + Math.random() * 0.35;
+                const stoneGeo = new THREE.DodecahedronGeometry(radius, 1);
+                stoneGeo.scale(1.2, 0.65, 1.0);
+                const stoneMat = new THREE.MeshStandardMaterial({
+                    color: stoneColors[i % stoneColors.length],
+                    roughness: 0.75
+                });
+                const stone = new THREE.Mesh(stoneGeo, stoneMat);
+                stone.position.set(
+                    (Math.random() - 0.5) * (W - 2.2),
+                    -H / 2 + sandHeight - 0.05,
+                    (Math.random() - 0.5) * (D - 2.2)
+                );
+                stone.rotation.y = Math.random() * Math.PI;
+                tankGroup.add(stone);
+            }
+
+            // 6. 水草（揺れるスクリューバリスネリア風の緑の葉）
+            const plantClusters = [
+                { x: -5.2, z: -3.2, count: 7 },
+                { x: -4.2, z: 2.8,  count: 5 },
+                { x: 5.0,  z: -2.9, count: 8 },
+                { x: 4.5,  z: 3.1,  count: 6 },
+                { x: 0.5,  z: -3.6, count: 5 }
+            ];
+
+            plantClusters.forEach(cluster => {
+                for (let i = 0; i < cluster.count; i++) {
+                    const height = 2.2 + Math.random() * 2.8;
+                    const bladeGeo = new THREE.BoxGeometry(0.16, height, 0.03, 1, 8, 1);
+                    bladeGeo.translate(0, height / 2, 0); // 根元を原点に
+
+                    const bladeMat = new THREE.MeshStandardMaterial({
+                        color: i % 2 === 0 ? 0x10b981 : 0x059669,
+                        roughness: 0.5,
+                        side: THREE.DoubleSide
+                    });
+                    const blade = new THREE.Mesh(bladeGeo, bladeMat);
+                    blade.position.set(
+                        cluster.x + (Math.random() - 0.5) * 1.1,
+                        -H / 2 + sandHeight - 0.1,
+                        cluster.z + (Math.random() - 0.5) * 1.1
+                    );
+                    blade.rotation.y = Math.random() * Math.PI;
+                    blade.userData = {
+                        isPlant: true,
+                        phase: Math.random() * Math.PI * 2,
+                        speed: 1.2 + Math.random() * 0.6
+                    };
+                    tankGroup.add(blade);
+                }
+            });
+
+            // 7. 常時立ち昇る気泡パーティクル
+            const bubbleCount = 75;
+            const bubbleGeo = new THREE.BufferGeometry();
+            const bubblePositions = new Float32Array(bubbleCount * 3);
+            const bubbleSpeeds = [];
+
+            for (let i = 0; i < bubbleCount; i++) {
+                bubblePositions[i * 3] = (Math.random() - 0.5) * (W - 1.0);
+                bubblePositions[i * 3 + 1] = (Math.random() - 0.5) * (H - 1.0);
+                bubblePositions[i * 3 + 2] = (Math.random() - 0.5) * (D - 1.0);
+                bubbleSpeeds.push(0.6 + Math.random() * 1.1);
+            }
+            bubbleGeo.setAttribute('position', new THREE.BufferAttribute(bubblePositions, 3));
+
+            const bubbleMat = new THREE.PointsMaterial({
+                color: 0xe0f2fe,
+                size: 0.14,
+                transparent: true,
+                opacity: 0.65
+            });
+            bubblesMesh = new THREE.Points(bubbleGeo, bubbleMat);
+            bubblesMesh.userData.speeds = bubbleSpeeds;
+            tankGroup.add(bubblesMesh);
+
+            sparklesGroup = new THREE.Group();
+            scene.add(sparklesGroup);
+        }
+
+        /**
+         * ============================================================================
+         * 4. 3D金魚メッシュ生成＆スイミングAIクラス
+         * ============================================================================
+         */
+        class Goldfish3D {
+            constructor(fortuneData) {
+                this.data = fortuneData;
+                this.colorInfo = fortuneData.color;
+                this.sizeInfo = fortuneData.size;
+                this.scale = this.sizeInfo.scale;
+
+                this.group = new THREE.Group();
+                this.rainbowHue = Math.random();
+                this.swimPhase = Math.random() * Math.PI * 2;
+
+                // 大きさに応じて泳ぐ速度や旋回を調整
+                this.baseSpeed = (1.6 + Math.random() * 0.8) / Math.pow(this.scale, 0.25);
+                this.currentSpeed = this.baseSpeed;
+
+                this.buildMesh();
+
+                // 出現位置（水面付近からぽちゃん！と登場）
+                const marginX = TANK_BOUNDS.width * 0.32;
+                const marginZ = TANK_BOUNDS.depth * 0.32;
+                this.group.position.set(
+                    (Math.random() - 0.5) * marginX * 2,
+                    TANK_BOUNDS.height / 2 - 0.9,
+                    (Math.random() - 0.5) * marginZ * 2
+                );
+
+                // 初期の進行方向と目標地点を設定
+                this.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 2,
+                    -0.8,
+                    (Math.random() - 0.5) * 2
+                ).normalize();
+
+                this.targetPos = this.pickRandomTarget();
+                this.changeTargetTimer = 1.5 + Math.random() * 2.5;
+
+                // 出現時のバウンスアニメーション用
+                this.spawnScaleFactor = 0.01;
+                this.group.scale.setScalar(this.scale * this.spawnScaleFactor);
+
+                scene.add(this.group);
+            }
+
+            buildMesh() {
+                const { hex, finHex, metalness, roughness, id } = this.colorInfo;
+
+                // 胴体マテリアル
+                this.bodyMat = new THREE.MeshPhysicalMaterial({
+                    color: hex,
+                    metalness: metalness,
+                    roughness: roughness,
+                    clearcoat: 0.8,
+                    clearcoatRoughness: 0.15
+                });
+
+                // ヒレマテリアル（優雅に透ける質感）
+                this.finMat = new THREE.MeshPhysicalMaterial({
+                    color: finHex,
+                    metalness: metalness * 0.8,
+                    roughness: 0.3,
+                    transparent: true,
+                    opacity: id === 'silver' || id === 'gold' ? 0.88 : 0.78,
+                    side: THREE.DoubleSide
+                });
+
+                // 1. 胴体（ふっくらした流線型の金魚ボディ：前方が +Z 方向）
+                const bodyGeo = new THREE.SphereGeometry(0.45, 24, 18);
+                bodyGeo.scale(0.72, 0.88, 1.45);
+                const bodyMesh = new THREE.Mesh(bodyGeo, this.bodyMat);
+                this.group.add(bodyMesh);
+
+                // 2. 目（左右の可愛い黒目＋白目リング）
+                const eyeWhiteGeo = new THREE.SphereGeometry(0.085, 12, 12);
+                const eyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                const pupilGeo = new THREE.SphereGeometry(0.055, 10, 10);
+                const pupilMat = new THREE.MeshBasicMaterial({ color: 0x090d16 });
+
+                [-1, 1].forEach(side => {
+                    const eyeGroup = new THREE.Group();
+                    const white = new THREE.Mesh(eyeWhiteGeo, eyeWhiteMat);
+                    const pupil = new THREE.Mesh(pupilGeo, pupilMat);
+                    pupil.position.set(side * 0.03, 0, 0.03);
+                    eyeGroup.add(white, pupil);
+                    eyeGroup.position.set(side * 0.25, 0.1, 0.42);
+                    this.group.add(eyeGroup);
+                });
+
+                // 3. 背びれ
+                const dorsalGeo = new THREE.ConeGeometry(0.24, 0.45, 4);
+                dorsalGeo.scale(0.18, 1, 1.3);
+                dorsalGeo.rotateX(-0.35);
+                const dorsalMesh = new THREE.Mesh(dorsalGeo, this.finMat);
+                dorsalMesh.position.set(0, 0.45, -0.05);
+                this.group.add(dorsalMesh);
+
+                // 4. 胸びれ（左右パタパタ動く）
+                const pecGeo = new THREE.ConeGeometry(0.18, 0.42, 4);
+                pecGeo.scale(0.15, 1, 0.85);
+                pecGeo.translate(0, -0.18, 0);
+
+                this.leftPectoral = new THREE.Mesh(pecGeo, this.finMat);
+                this.leftPectoral.position.set(0.28, -0.14, 0.22);
+                this.leftPectoral.rotation.set(0.3, 0, -0.65);
+                this.group.add(this.leftPectoral);
+
+                this.rightPectoral = new THREE.Mesh(pecGeo, this.finMat);
+                this.rightPectoral.position.set(-0.28, -0.14, 0.22);
+                this.rightPectoral.rotation.set(0.3, 0, 0.65);
+                this.group.add(this.rightPectoral);
+
+                // 5. 豪華な三つ尾・吹き流し尾びれ（後方 -Z 側で左右に揺れる）
+                this.tailPivot = new THREE.Group();
+                this.tailPivot.position.set(0, 0, -0.58);
+                this.group.add(this.tailPivot);
+
+                // 上尾びれ
+                const upperTailGeo = new THREE.ConeGeometry(0.34, 0.85, 4);
+                upperTailGeo.scale(0.12, 1, 1.15);
+                upperTailGeo.rotateX(-Math.PI / 2 - 0.22);
+                upperTailGeo.translate(0, 0.12, -0.38);
+                const upperTail = new THREE.Mesh(upperTailGeo, this.finMat);
+                this.tailPivot.add(upperTail);
+
+                // 左右に広がる下尾びれ（琉金・和金風の優雅なヒレ）
+                [-1, 1].forEach(side => {
+                    const lowerTailGeo = new THREE.ConeGeometry(0.30, 0.82, 4);
+                    lowerTailGeo.scale(0.12, 1, 1.1);
+                    lowerTailGeo.rotateX(-Math.PI / 2 + 0.28);
+                    lowerTailGeo.rotateY(side * 0.26);
+                    lowerTailGeo.translate(side * 0.12, -0.12, -0.36);
+                    const lowerTail = new THREE.Mesh(lowerTailGeo, this.finMat);
+                    this.tailPivot.add(lowerTail);
+                });
+            }
+
+            // 水槽内の安全なランダム目標地点を選択（金魚のサイズに応じた壁マージン）
+            pickRandomTarget() {
+                const margin = Math.min(2.6, 0.85 * this.scale + 0.45);
+                const maxX = Math.max(1.2, TANK_BOUNDS.width / 2 - margin);
+                const maxY = Math.max(1.0, TANK_BOUNDS.height / 2 - margin);
+                const minY = -TANK_BOUNDS.height / 2 + 0.85 + margin * 0.4;
+                const maxZ = Math.max(1.2, TANK_BOUNDS.depth / 2 - margin);
+
+                return new THREE.Vector3(
+                    (Math.random() - 0.5) * 2 * maxX,
+                    minY + Math.random() * Math.max(0.5, maxY - minY),
+                    (Math.random() - 0.5) * 2 * maxZ
+                );
+            }
+
+            update(dt, elapsedTime) {
+                // 出現時のぷるんとした拡大演出
+                if (this.spawnScaleFactor < 1.0) {
+                    this.spawnScaleFactor = Math.min(1.0, this.spawnScaleFactor + dt * 3.5);
+                    const ease = 1 - Math.pow(1 - this.spawnScaleFactor, 3);
+                    this.group.scale.setScalar(this.scale * ease);
+                }
+
+                // 虹色金魚の場合、七色に美しく変化し続ける
+                if (this.colorInfo.id === 'rainbow') {
+                    this.rainbowHue = (this.rainbowHue + dt * 0.28) % 1.0;
+                    this.bodyMat.color.setHSL(this.rainbowHue, 0.92, 0.56);
+                    this.finMat.color.setHSL((this.rainbowHue + 0.15) % 1.0, 0.95, 0.68);
+                }
+
+                // レア金魚（銀・金・虹）は時々キラキラパーティクルを放つ
+                if ((this.colorInfo.id === 'gold' || this.colorInfo.id === 'rainbow' || this.colorInfo.id === 'silver') && Math.random() < dt * 3.5) {
+                    spawnSparkleParticle(this.group.position, this.bodyMat.color);
+                }
+
+                // 目標地点の更新タイマー
+                this.changeTargetTimer -= dt;
+                const distToTarget = this.group.position.distanceTo(this.targetPos);
+                if (this.changeTargetTimer <= 0 || distToTarget < 1.1) {
+                    this.targetPos = this.pickRandomTarget();
+                    this.changeTargetTimer = 2.0 + Math.random() * 3.2;
+                    // スイスイと緩急をつけて泳ぐ
+                    this.currentSpeed = this.baseSpeed * (0.75 + Math.random() * 0.55);
+                }
+
+                // 目標方向へのステアリング
+                const desiredDir = new THREE.Vector3().subVectors(this.targetPos, this.group.position).normalize();
+
+                // 水槽の壁際のソフト反発力（壁めり込み防止）
+                const margin = Math.min(2.6, 0.85 * this.scale + 0.45);
+                const limitX = TANK_BOUNDS.width / 2 - margin;
+                const limitTop = TANK_BOUNDS.height / 2 - margin;
+                const limitBottom = -TANK_BOUNDS.height / 2 + 0.8 + margin * 0.35;
+                const limitZ = TANK_BOUNDS.depth / 2 - margin;
+
+                const pos = this.group.position;
+                if (pos.x > limitX) desiredDir.x -= (pos.x - limitX) * 2.5;
+                if (pos.x < -limitX) desiredDir.x += (-limitX - pos.x) * 2.5;
+                if (pos.y > limitTop) desiredDir.y -= (pos.y - limitTop) * 2.5;
+                if (pos.y < limitBottom) desiredDir.y += (limitBottom - pos.y) * 2.5;
+                if (pos.z > limitZ) desiredDir.z -= (pos.z - limitZ) * 2.5;
+                if (pos.z < -limitZ) desiredDir.z += (-limitZ - pos.z) * 2.5;
+
+                desiredDir.normalize();
+
+                // 滑らかな方向転換
+                this.velocity.lerp(desiredDir, dt * 2.4).normalize();
+
+                // 移動適用
+                this.group.position.addScaledVector(this.velocity, this.currentSpeed * dt);
+
+                // 進行方向へ体を向ける（Y軸旋回＋わずかな上下ピッチ）
+                const lookTarget = this.group.position.clone().add(this.velocity);
+                const dummyMatrix = new THREE.Matrix4();
+                dummyMatrix.lookAt(lookTarget, this.group.position, new THREE.Vector3(0, 1, 0));
+                const targetQuat = new THREE.Quaternion().setFromRotationMatrix(dummyMatrix);
+                this.group.quaternion.slerp(targetQuat, dt * 4.5);
+
+                // 尾びれ・胸びれ・体のくねりアニメーション
+                this.swimPhase += dt * (6.5 + this.currentSpeed * 2.8);
+                const tailSwing = Math.sin(this.swimPhase) * 0.42;
+                this.tailPivot.rotation.y = tailSwing;
+                // 体のわずかなロール揺れ
+                this.group.rotation.z += Math.sin(this.swimPhase * 0.5) * 0.04;
+
+                // 胸びれのパタパタ動作
+                const pecSwing = Math.sin(this.swimPhase * 1.3) * 0.25;
+                this.leftPectoral.rotation.z = -0.65 + pecSwing;
+                this.rightPectoral.rotation.z = 0.65 - pecSwing;
+            }
+
+            dispose() {
+                scene.remove(this.group);
+                this.bodyMat.dispose();
+                this.finMat.dispose();
+            }
+        }
+
+        // キラキラ・水しぶきパーティクル生成
+        function spawnSparkleParticle(originPos, colorObj, burstCount = 1) {
+            for (let i = 0; i < burstCount; i++) {
+                const geo = new THREE.OctahedronGeometry(0.08 + Math.random() * 0.08, 0);
+                const mat = new THREE.MeshBasicMaterial({
+                    color: colorObj,
+                    transparent: true,
+                    opacity: 0.95
+                });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.copy(originPos).add(new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.8,
+                    (Math.random() - 0.5) * 0.8,
+                    (Math.random() - 0.5) * 0.8
+                ));
+
+                const vel = new THREE.Vector3(
+                    (Math.random() - 0.5) * 2.2,
+                    0.5 + Math.random() * 1.8,
+                    (Math.random() - 0.5) * 2.2
+                );
+
+                sparklesGroup.add(mesh);
+                activeParticles.push({
+                    mesh,
+                    mat,
+                    geo,
+                    vel,
+                    life: 0.7 + Math.random() * 0.5,
+                    maxLife: 1.2
+                });
+            }
+        }
+
+        // ウィンドウリサイズ処理
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // メインアニメーションループ
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const dt = Math.min(clock.getDelta(), 0.05);
+            const elapsed = clock.getElapsedTime();
+
+            // カメラコントロール更新
+            controls.update();
+
+            // 水草の揺らぎ＆水面の波紋更新
+            if (tankGroup) {
+                tankGroup.children.forEach(child => {
+                    if (child.userData.isPlant) {
+                        child.rotation.z = Math.sin(elapsed * child.userData.speed + child.userData.phase) * 0.08;
+                        child.rotation.x = Math.cos(elapsed * child.userData.speed * 0.8 + child.userData.phase) * 0.05;
+                    } else if (child.userData.isWaterSurface) {
+                        const pos = child.geometry.attributes.position;
+                        for (let i = 0; i < pos.count; i++) {
+                            const x = pos.getX(i);
+                            const z = pos.getZ(i);
+                            pos.setY(i, Math.sin(x * 1.2 + elapsed * 2.0) * 0.03 + Math.cos(z * 1.2 + elapsed * 1.7) * 0.03);
+                        }
+                        pos.needsUpdate = true;
+                    }
+                });
+            }
+
+            // 気泡の上昇アニメーション
+            if (bubblesMesh) {
+                const positions = bubblesMesh.geometry.attributes.position.array;
+                const speeds = bubblesMesh.userData.speeds;
+                const topY = TANK_BOUNDS.height / 2 - 0.25;
+                const bottomY = -TANK_BOUNDS.height / 2 + 0.7;
+
+                for (let i = 0; i < speeds.length; i++) {
+                    positions[i * 3 + 1] += speeds[i] * dt;
+                    positions[i * 3] += Math.sin(elapsed * 2 + i) * 0.004;
+                    if (positions[i * 3 + 1] > topY) {
+                        positions[i * 3 + 1] = bottomY;
+                    }
+                }
+                bubblesMesh.geometry.attributes.position.needsUpdate = true;
+            }
+
+            // 金魚の泳ぎ更新
+            for (const fish of activeGoldfishes) {
+                fish.update(dt, elapsed);
+            }
+
+            // キラキラパーティクルの更新
+            for (let i = activeParticles.length - 1; i >= 0; i--) {
+                const p = activeParticles[i];
+                p.life -= dt;
+                if (p.life <= 0) {
+                    sparklesGroup.remove(p.mesh);
+                    p.geo.dispose();
+                    p.mat.dispose();
+                    activeParticles.splice(i, 1);
+                } else {
+                    p.mesh.position.addScaledVector(p.vel, dt);
+                    p.mesh.rotation.x += dt * 4;
+                    p.mesh.rotation.y += dt * 4;
+                    p.mat.opacity = Math.max(0, p.life / p.maxLife);
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        /**
+         * ============================================================================
+         * 5. 日付カウントダウンタイマー＆UI制御
+         * ============================================================================
+         */
+        let currentActiveDateStr = getLocalDateString();
+        let bannerHideTimeout = null;
+
+        // 次の日（00:00:00）までのカウントダウン更新
+        function updateCountdownTimer() {
+            const now = new Date();
+            const todayStr = getLocalDateString(now);
+
+            // 日付が変わった瞬間を検知！
+            if (todayStr !== currentActiveDateStr) {
+                currentActiveDateStr = todayStr;
+                onDateChanged(todayStr);
+            }
+
+            document.getElementById('current-date-label').textContent = `${todayStr.replace(/-/g, '/')} の運勢`;
+
+            // 翌日の 00:00:00 を計算
+            const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
+            const diffMs = Math.max(0, tomorrow - now);
+
+            const totalSeconds = Math.floor(diffMs / 1000);
+            const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+            const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+            const seconds = String(totalSeconds % 60).padStart(2, '0');
+
+            document.getElementById('countdown-timer').textContent = `次の日まで ${hours}:${minutes}:${seconds}`;
+        }
+
+        // 0時00分になった時の通知
+        function onDateChanged(newDateStr) {
+            showToast('🌅', `日付が変わりました！ (${newDateStr.replace(/-/g, '/')})`, 'すべての言葉の運勢・確率が新しくなりました！');
+            soundManager.playRareSparkle('gold');
+        }
+
+        function showToast(icon, text, subtext) {
+            const toast = document.getElementById('toast-message');
+            document.getElementById('toast-icon').textContent = icon;
+            document.getElementById('toast-text').textContent = text;
+            document.getElementById('toast-subtext').textContent = subtext;
+
+            toast.classList.remove('hidden');
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 3800);
+        }
+
+        // 抽選結果バナーとエフェクトの表示
+        function showResultFeedback(fortune, fishMesh) {
+            const banner = document.getElementById('result-banner');
+            const card = document.getElementById('result-card');
+            const badge = document.getElementById('result-rarity-badge');
+            const wordEl = document.getElementById('result-word');
+            const titleEl = document.getElementById('result-title');
+            const subEl = document.getElementById('result-sub');
+
+            const { color, size, word, combinedProb, isAdmin } = fortune;
+
+            wordEl.textContent = word;
+            titleEl.textContent = `${color.name}の${size.name}金魚`;
+            subEl.textContent = isAdmin
+                ? `隠しコマンド発動！ 通常確率 0.1% を確定召喚`
+                : `出現率: ${combinedProb}% （色 ${color.prob}% × サイズ ${size.prob}%）`;
+
+            // レア度別のスタイル・サウンド・パーティクル演出
+            card.className = 'glass-panel rounded-2xl p-4 text-center shadow-2xl transition-all duration-300 animate-pop-in';
+            titleEl.className = 'text-xl sm:text-2xl font-black tracking-wide my-1';
+
+            if (isAdmin) {
+                card.classList.add('rainbow-border', 'shadow-amber-500/40');
+                badge.textContent = '👑 管理者特権発動！ 虹 × めっちゃ大きい 金魚が出現！ 🌈';
+                badge.className = 'inline-block px-3 py-0.5 rounded-full text-[11px] font-black tracking-wider mb-1 bg-gradient-to-r from-amber-300 via-pink-400 to-cyan-300 text-slate-950 shadow-md';
+                titleEl.classList.add('rainbow-text');
+                soundManager.playRareSparkle('rainbow');
+                spawnSparkleParticle(fishMesh.group.position, new THREE.Color(0xffffff), 40);
+            } else if (color.id === 'rainbow') {
+                card.classList.add('rainbow-border');
+                badge.textContent = '🌈 MIRACLE!! 超激レア虹色金魚 🌈';
+                badge.className = 'inline-block px-3 py-0.5 rounded-full text-[11px] font-black tracking-wider mb-1 bg-gradient-to-r from-pink-500 via-amber-400 to-cyan-400 text-slate-950';
+                titleEl.classList.add('rainbow-text');
+                soundManager.playRareSparkle('rainbow');
+                spawnSparkleParticle(fishMesh.group.position, new THREE.Color(0xffffff), 28);
+            } else if (color.id === 'gold') {
+                card.classList.add('border-amber-400/70', 'shadow-amber-500/30');
+                badge.textContent = '👑 SUPER RARE!! 黄金の金魚 👑';
+                badge.className = 'inline-block px-3 py-0.5 rounded-full text-[11px] font-bold tracking-wider mb-1 bg-amber-400 text-slate-950';
+                titleEl.classList.add('text-amber-300');
+                soundManager.playRareSparkle('gold');
+                spawnSparkleParticle(fishMesh.group.position, new THREE.Color(0xfbbf24), 20);
+            } else if (color.id === 'silver') {
+                card.classList.add('border-slate-300/70', 'shadow-slate-300/20');
+                badge.textContent = '🥈 RARE!! 白銀の金魚 🥈';
+                badge.className = 'inline-block px-3 py-0.5 rounded-full text-[11px] font-bold tracking-wider mb-1 bg-slate-200 text-slate-900';
+                titleEl.classList.add('text-slate-100');
+                soundManager.playRareSparkle('silver');
+                spawnSparkleParticle(fishMesh.group.position, new THREE.Color(0xe2e8f0), 15);
+            } else if (size.id === 'xl') {
+                card.classList.add('border-orange-400/60');
+                badge.textContent = '✨ BIG HIT!! めっちゃ大きい金魚 ✨';
+                badge.className = 'inline-block px-3 py-0.5 rounded-full text-[11px] font-bold tracking-wider mb-1 bg-orange-500/30 text-orange-200 border border-orange-400/40';
+                titleEl.classList.add('text-orange-200');
+                soundManager.playRareSparkle('silver');
+                spawnSparkleParticle(fishMesh.group.position, new THREE.Color(0x7dd3fc), 12);
+            } else {
+                badge.textContent = '🐠 本日の言霊結果';
+                badge.className = 'inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wider mb-1 bg-white/10 text-sky-200';
+                const colorTextMap = {
+                    white: 'text-white',
+                    orange: 'text-orange-400',
+                    black: 'text-slate-300',
+                    blue: 'text-sky-400'
+                };
+                titleEl.classList.add(colorTextMap[color.id] || 'text-white');
+                spawnSparkleParticle(fishMesh.group.position, new THREE.Color(0xe0f2fe), 8);
+            }
+
+            // アニメーション再トリガー
+            banner.classList.add('hidden');
+            void banner.offsetWidth;
+            banner.classList.remove('hidden');
+
+            if (bannerHideTimeout) clearTimeout(bannerHideTimeout);
+            bannerHideTimeout = setTimeout(() => {
+                banner.classList.add('hidden');
+            }, 4200);
+        }
+
+        function updateFishCounter() {
+            document.getElementById('fish-count').textContent = activeGoldfishes.length;
+        }
+
+        /**
+         * ============================================================================
+         * 6. イベントリスナー＆初期化
+         * ============================================================================
+         */
+        window.onload = function() {
+            initThreeJS();
+            animate();
+
+            // タイマー即時実行＆1秒毎更新
+            updateCountdownTimer();
+            setInterval(updateCountdownTimer, 1000);
+
+            const form = document.getElementById('fortune-form');
+            const input = document.getElementById('word-input');
+            const errorEl = document.getElementById('input-error');
+
+            // フォーム送信（金魚を呼ぶ）
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const rawVal = input.value;
+
+                // 空白のみの入力は不可（トリムしてチェック）
+                if (!rawVal || rawVal.trim().length === 0) {
+                    errorEl.classList.remove('hidden');
+                    input.focus();
+                    return;
+                }
+                errorEl.classList.add('hidden');
+
+                const word = rawVal.trim();
+                const todayStr = getLocalDateString();
+
+                // 決定論的抽選を実行
+                const fortune = drawGoldfishFortune(word, todayStr);
+
+                // 3D水槽に金魚を追加
+                const newFish = new Goldfish3D(fortune);
+                activeGoldfishes.push(newFish);
+                updateFishCounter();
+
+                // 水音再生＆結果演出
+                soundManager.playWaterDrop(fortune.size.scale);
+                showResultFeedback(fortune, newFish);
+
+                // カメラヒントを薄くする
+                document.getElementById('camera-hint').style.opacity = '0.35';
+            });
+
+            // 入力時にエラー表示を消す
+            input.addEventListener('input', () => {
+                if (input.value.trim().length > 0) {
+                    errorEl.classList.add('hidden');
+                }
+            });
+
+            // サウンド切替ボタン
+            const soundToggleBtn = document.getElementById('sound-toggle');
+            soundToggleBtn.addEventListener('click', () => {
+                const isOn = soundManager.toggle();
+                document.getElementById('sound-icon').textContent = isOn ? '🔊' : '🔇';
+                if (isOn) soundManager.playWaterDrop(1.0);
+            });
+
+            // 確率表モーダル開閉
+            const probModal = document.getElementById('prob-modal');
+            document.getElementById('toggle-prob-btn').addEventListener('click', () => {
+                probModal.classList.toggle('hidden');
+            });
+            document.getElementById('close-prob-btn').addEventListener('click', () => {
+                probModal.classList.add('hidden');
+            });
+
+            // 水槽リセットボタン（alert/confirmを使わず即座にクリア＋通知）
+            document.getElementById('reset-tank-btn').addEventListener('click', () => {
+                if (activeGoldfishes.length === 0) {
+                    showToast('💧', '水槽はすでに空です', '文字を入力して金魚を呼びましょう！');
+                    return;
+                }
+                while (activeGoldfishes.length > 0) {
+                    const f = activeGoldfishes.pop();
+                    f.dispose();
+                }
+                updateFishCounter();
+                soundManager.playWaterDrop(0.8);
+                showToast('✨', '水槽をきれいにしました', 'また好きな言葉を入力して金魚を呼べます');
+            });
+
+            // 入力パネルの折りたたみ・展開
+            const inputPanel = document.getElementById('input-panel');
+            const collapseBtn = document.getElementById('collapse-ui-btn');
+            const expandBtn = document.getElementById('expand-ui-btn');
+
+            collapseBtn.addEventListener('click', () => {
+                inputPanel.classList.add('hidden');
+                expandBtn.classList.remove('hidden');
+            });
+
+            expandBtn.addEventListener('click', () => {
+                expandBtn.classList.add('hidden');
+                inputPanel.classList.remove('hidden');
+                input.focus();
+            });
+
+            // 起動時にテキストボックスへフォーカス
+            input.focus();
+        };
+    </script>
+</body>
+</html>
